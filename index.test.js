@@ -1,4 +1,4 @@
-const { add, subtract, multiply, divide } = require('./index')
+const { add, subtract, multiply, divide, modulo } = require('./index')
 
 test.each([
   [1, 2, 3],
@@ -24,4 +24,16 @@ test.each([
 test('divide', () => {
   expect(divide(10, 2)).toBe(5)
   expect(() => divide(1, 0)).toThrow('Division by zero')
+})
+
+test.each([
+  [10, 3, 1],
+  [9, 3, 0],
+  [-10, 3, -1],
+])('modulo(%i, %i) === %i', (a, b, expected) => {
+  expect(modulo(a, b)).toBe(expected)
+})
+
+test('modulo by zero throws', () => {
+  expect(() => modulo(5, 0)).toThrow('Division by zero')
 })
