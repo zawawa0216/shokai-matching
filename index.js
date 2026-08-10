@@ -1,18 +1,6 @@
-function add(a, b) {
-  return a + b
-}
+const { createApp } = require('./src/app')
+const { createHttpServer } = require('./src/api/httpServer')
+const constants = require('./src/domain/constants')
+const errors = require('./src/errors')
 
-function subtract(a, b) {
-  return a - b
-}
-
-function multiply(a, b) {
-  return a * b
-}
-
-function divide(a, b) {
-  if (b === 0) throw new Error('Division by zero')
-  return a / b
-}
-
-module.exports = { add, subtract, multiply, divide }
+module.exports = { createApp, createHttpServer, constants, errors }
