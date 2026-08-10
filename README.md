@@ -35,11 +35,28 @@ ACTIVE の会員だけが相手を探せて、相手を紹介できます。
 
 ```bash
 npm install
-npm test                            # 66 tests
+npm test                            # 69 tests
 OPERATOR_KEY=secret npm start       # http://localhost:3000
+npm run build:demo                  # dist/demo.html（ブラウザだけで動く体験版）
 ```
 
 `OPERATOR_KEY` を設定しないと `/admin/*` は 503 を返します。
+
+## 体験版
+
+`npm run build:demo` は `dist/demo.html` を書き出します。サーバーもデータベースも要らず、
+ブラウザで開くだけで紹介の発行から入会審査、マッチングまで一通り試せます。
+
+このページには `src/` のサービス実装がそのまま入っています（`tools/build-demo.js` が
+CommonJS モジュールを小さなローダで包んで単体ファイルにまとめます）。デモ用にロジックを
+書き写していないので、招待の期限も年齢の判定もサーバーと同じコードが動きます。
+違いは2点だけです。
+
+- データベースの代わりにブラウザのメモリを使うため、再読み込みで消える
+- パスワードのハッシュはブラウザ用の簡易版に差し替えてある（本番の scrypt とは別物）
+
+`tests/demoBundle.test.js` がバンドルを実際に評価して、ブラウザ環境でも
+入会条件とマッチングの規則が壊れていないことを検証します。
 
 ## 主なエンドポイント
 
@@ -98,7 +115,10 @@ src/
   domain/validators.js      入力バリデーション
   services/                 招待・会員・本人確認・審査・マッチング・メッセージ・安全
   api/                      ルーター、ルート定義、node:http サーバー
-tests/                      Jest テスト（ドメイン + API 疎通）
+demo/index.html             体験版の画面（<!--BUNDLE--> にバンドルが差し込まれる）
+tools/build-demo.js         src/ をブラウザ用に束ねる最小バンドラ
+tools/build-artifact.js     体験版を単一 HTML として書き出す
+tests/                      Jest テスト（ドメイン + API 疎通 + バンドル）
 ```
 
 外部ランタイム依存はありません（Node 20+ の標準ライブラリのみ）。

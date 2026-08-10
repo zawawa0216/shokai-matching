@@ -17,6 +17,8 @@ src/store.js        # インメモリのデータストア
 src/domain/         # 定数・日付計算・バリデーション
 src/services/       # 招待・会員・本人確認・審査・マッチング・メッセージ・安全
 src/api/            # ルーター・ルート定義・node:http サーバー
+demo/index.html     # 体験版の画面
+tools/              # 体験版のビルド（src/ をブラウザ用に束ねる）
 tests/              # Jest テスト
 ```
 
@@ -27,7 +29,20 @@ npm install
 npm test                          # 全テストの実行
 npx jest tests/matching.test.js   # 単一ファイル
 OPERATOR_KEY=secret npm start     # ローカル起動
+npm run build:demo                # dist/demo.html を書き出す
 ```
+
+## 体験版について
+
+`demo/index.html` は UI だけを持ち、ドメインロジックは `src/` のコードを
+`tools/build-demo.js` が束ねたものをそのまま読み込む。
+
+- **デモ側にルールを書き写さない。** 年齢や文字数の判定を UI に複製すると本体と乖離する
+- 新しいサービスを `src/services/` に足したら `tools/build-demo.js` の `ENTRIES` にも追加する
+- ブラウザ用の `node:crypto` スタブは `tools/build-demo.js` の `PRELUDE` にあり、
+  パスワードハッシュはデモ専用の簡易実装。本番の認証に使わない
+- 体験版の初期データも実サービス経由で作るため、規約（自己紹介100文字など）を
+  満たさない文面を書くと起動時に落ちる。変更したら `npm test` で確認する
 
 ## 崩してはいけない不変条件
 
