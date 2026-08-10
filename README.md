@@ -76,7 +76,7 @@ Vercel のプロジェクト設定で環境変数を3つ入れてから再デプ
 
 | 環境変数 | 内容 |
 | --- | --- |
-| `SUPABASE_URL` | `https://<project-ref>.supabase.co` |
+| `SUPABASE_URL` | `https://<project-ref>.supabase.co`（このプロジェクトでは `wtnozlplahswvobrgjwj`） |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase の Project Settings → API Keys のサービスロールキー |
 | `OPERATOR_KEY` | 運営用 API の合言葉。任意の長い文字列 |
 
