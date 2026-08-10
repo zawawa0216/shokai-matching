@@ -508,6 +508,14 @@ button.link {
   object-fit: cover;
 }
 
+/* マイページなど、単独で見せるとき用 */
+.avatar.large {
+  width: 76px;
+  height: 76px;
+  font-size: 31px;
+  margin: 0 auto;
+}
+
 .list-item .who {
   flex: 1;
   min-width: 0;

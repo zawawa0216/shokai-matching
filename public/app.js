@@ -826,7 +826,7 @@
       <div class="topbar"><h2>マイページ</h2></div>
       <div class="screen">
         <div class="card" style="text-align:center;">
-          ${pictureHtml(me, 'avatar')}
+          ${pictureHtml(me, 'avatar large')}
           <h3 style="margin:10px 0 2px;">${esc(me.displayName)}</h3>
           <div class="muted">${me.age}歳・${esc(GENDER[me.gender] || '')}・${esc(me.prefecture)}</div>
           <div class="badges" style="justify-content:center; margin-top:10px;">
