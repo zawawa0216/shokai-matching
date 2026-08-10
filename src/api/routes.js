@@ -11,12 +11,14 @@ const { REACTION } = require('../domain/constants')
 function buildRoutes(app) {
   const router = createRouter()
 
-  const publicMember = (member) => ({
+  /** 本人と運営に返す会員表現。認証情報は絶対に含めない。 */
+  const selfView = (member) => ({
     id: member.id,
     email: member.email,
     displayName: member.displayName,
     status: member.status,
     age: member.age,
+    birthDate: member.birthDate,
     gender: member.gender,
     prefecture: member.prefecture,
     profile: member.profile,
@@ -29,108 +31,126 @@ function buildRoutes(app) {
   })
 
   // ---- 公開 ----------------------------------------------------------------
-  router.post('/auth/login', ({ body }) => app.auth.login(body))
+  router.get('/api/health', () => ({ ok: true }))
 
-  router.get('/invitations/:code', ({ params }) => app.invitations.lookup(params.code))
+  router.post('/api/auth/login', ({ body }) => app.auth.login(body))
 
-  router.post('/members/register', ({ body }) => respond(201, publicMember(app.members.register(body))))
+  router.get('/api/invitations/:code', ({ params }) => app.invitations.lookup(params.code))
+
+  router.post('/api/members/register', async ({ body }) =>
+    respond(201, selfView(await app.members.register(body))),
+  )
 
   // ---- 会員本人 ------------------------------------------------------------
-  router.post('/auth/logout', ({ token }) => {
-    app.auth.logout(token)
-    return respond(204)
-  }, { auth: 'member' })
+  router.post(
+    '/api/auth/logout',
+    async ({ token }) => {
+      await app.auth.logout(token)
+      return respond(204)
+    },
+    { auth: 'member' },
+  )
 
-  router.get('/me', ({ member }) => publicMember(member), { auth: 'member' })
+  router.get('/api/me', ({ member }) => selfView(member), { auth: 'member' })
 
-  router.patch('/me', ({ member, body }) => publicMember(app.members.updateProfile(member.id, body)), {
+  router.patch(
+    '/api/me',
+    async ({ member, body }) => selfView(await app.members.updateProfile(member.id, body)),
+    { auth: 'member' },
+  )
+
+  router.get('/api/me/screening', ({ member }) => app.screening.requirements(member.id), {
     auth: 'member',
   })
 
-  router.get('/me/screening', ({ member }) => app.screening.requirements(member.id), {
+  router.post('/api/me/screening', async ({ member }) => selfView(await app.screening.submit(member.id)), {
     auth: 'member',
   })
 
-  router.post('/me/screening', ({ member }) => publicMember(app.screening.submit(member.id)), {
-    auth: 'member',
-  })
-
-  router.get('/me/documents', ({ member }) => app.verification.listByMember(member.id), {
+  router.get('/api/me/documents', ({ member }) => app.verification.listByMember(member.id), {
     auth: 'member',
   })
 
   router.post(
-    '/me/documents/identity',
-    ({ member, body }) => respond(201, app.verification.submitIdentityDocument({ ...body, memberId: member.id })),
+    '/api/me/documents/identity',
+    async ({ member, body }) =>
+      respond(201, await app.verification.submitIdentityDocument({ ...body, memberId: member.id })),
     { auth: 'member' },
   )
 
   router.post(
-    '/me/documents/single-status',
-    ({ member, body }) => respond(201, app.verification.submitSingleStatusCertificate({ ...body, memberId: member.id })),
+    '/api/me/documents/single-status',
+    async ({ member, body }) =>
+      respond(
+        201,
+        await app.verification.submitSingleStatusCertificate({ ...body, memberId: member.id }),
+      ),
     { auth: 'member' },
   )
 
   // ---- 紹介 ----------------------------------------------------------------
-  router.get('/me/invitations', ({ member }) => app.invitations.listByReferrer(member.id), {
+  router.get('/api/me/invitations', ({ member }) => app.invitations.listByReferrer(member.id), {
     auth: 'member',
   })
 
   router.post(
-    '/me/invitations',
-    ({ member, body }) => respond(201, app.invitations.issue({ ...body, referrerId: member.id })),
+    '/api/me/invitations',
+    async ({ member, body }) =>
+      respond(201, await app.invitations.issue({ ...body, referrerId: member.id })),
     { auth: 'member' },
   )
 
   router.delete(
-    '/me/invitations/:id',
-    ({ member, params }) =>
-      app.invitations.revoke({ invitationId: params.id, actorId: member.id }),
+    '/api/me/invitations/:id',
+    ({ member, params }) => app.invitations.revoke({ invitationId: params.id, actorId: member.id }),
     { auth: 'member' },
   )
 
   // ---- 相手探し ------------------------------------------------------------
-  router.get('/discover', ({ member, query }) => {
-    const filters = {}
-    if (query.minAge) filters.minAge = Number(query.minAge)
-    if (query.maxAge) filters.maxAge = Number(query.maxAge)
-    if (query.gender) filters.gender = query.gender
-    if (query.prefecture) filters.prefecture = query.prefecture
-    if (query.intent) filters.intent = query.intent
-    if (query.singleCertifiedOnly === 'true') filters.singleCertifiedOnly = true
-    return app.matching.discover({
-      memberId: member.id,
-      filters,
-      limit: query.limit ? Number(query.limit) : undefined,
-    })
-  }, { auth: 'member' })
+  router.get(
+    '/api/discover',
+    ({ member, query }) => {
+      const filters = {}
+      if (query.minAge) filters.minAge = Number(query.minAge)
+      if (query.maxAge) filters.maxAge = Number(query.maxAge)
+      if (query.gender) filters.gender = query.gender
+      if (query.prefecture) filters.prefecture = query.prefecture
+      if (query.intent) filters.intent = query.intent
+      if (query.singleCertifiedOnly === 'true') filters.singleCertifiedOnly = true
+      return app.matching.discover({
+        memberId: member.id,
+        filters,
+        limit: query.limit ? Number(query.limit) : undefined,
+      })
+    },
+    { auth: 'member' },
+  )
 
   router.get(
-    '/members/:id',
+    '/api/members/:id',
     ({ member, params }) => app.matching.view({ viewerId: member.id, targetId: params.id }),
     { auth: 'member' },
   )
 
   router.post(
-    '/members/:id/like',
+    '/api/members/:id/like',
     ({ member, params }) =>
       app.matching.react({ fromId: member.id, toId: params.id, type: REACTION.LIKE }),
     { auth: 'member' },
   )
 
   router.post(
-    '/members/:id/pass',
+    '/api/members/:id/pass',
     ({ member, params }) =>
       app.matching.react({ fromId: member.id, toId: params.id, type: REACTION.PASS }),
     { auth: 'member' },
   )
 
   router.post(
-    '/members/:id/endorsements',
-    ({ member, params, body }) => {
-      // 対象会員のオブジェクトをそのまま返すとメールアドレスまで露出するため、
-      // 投稿された推薦文だけを返す。
-      const target = app.members.addEndorsement({
+    '/api/members/:id/endorsements',
+    async ({ member, params, body }) => {
+      // 対象会員をそのまま返すとメールアドレスまで露出するため、投稿された推薦文だけを返す。
+      const target = await app.members.addEndorsement({
         memberId: params.id,
         authorId: member.id,
         text: body.text,
@@ -140,106 +160,136 @@ function buildRoutes(app) {
     { auth: 'member' },
   )
 
-  router.get('/likes/incoming', ({ member }) => app.matching.listIncomingLikes(member.id), {
+  router.get('/api/likes/incoming', ({ member }) => app.matching.listIncomingLikes(member.id), {
     auth: 'member',
   })
 
   // ---- マッチとメッセージ ----------------------------------------------------
-  router.get('/matches', ({ member }) => app.matching.listMatches(member.id), { auth: 'member' })
+  router.get('/api/matches', ({ member }) => app.matching.listMatches(member.id), { auth: 'member' })
 
   router.delete(
-    '/matches/:id',
+    '/api/matches/:id',
     ({ member, params }) => app.matching.unmatch({ matchId: params.id, memberId: member.id }),
     { auth: 'member' },
   )
 
   router.get(
-    '/matches/:id/messages',
-    ({ member, params }) => app.messages.list({ matchId: params.id, memberId: member.id }),
+    '/api/matches/:id/messages',
+    async ({ member, params }) => {
+      const messages = await app.messages.list({ matchId: params.id, memberId: member.id })
+      await app.messages.markRead({ matchId: params.id, memberId: member.id })
+      return messages
+    },
     { auth: 'member' },
   )
 
   router.post(
-    '/matches/:id/messages',
-    ({ member, params, body }) => respond(201, app.messages.send({ matchId: params.id, senderId: member.id, body: body.body })),
+    '/api/matches/:id/messages',
+    async ({ member, params, body }) =>
+      respond(
+        201,
+        await app.messages.send({ matchId: params.id, senderId: member.id, body: body.body }),
+      ),
     { auth: 'member' },
   )
 
   // ---- 安全 ----------------------------------------------------------------
   router.post(
-    '/blocks',
+    '/api/blocks',
     ({ member, body }) => app.safety.block({ blockerId: member.id, blockedId: body.memberId }),
     { auth: 'member' },
   )
 
   router.delete(
-    '/blocks/:id',
+    '/api/blocks/:id',
     ({ member, params }) => app.safety.unblock({ blockerId: member.id, blockedId: params.id }),
     { auth: 'member' },
   )
 
   router.post(
-    '/reports',
-    ({ member, body }) => respond(201, app.safety.report({ ...body, reporterId: member.id })),
+    '/api/reports',
+    async ({ member, body }) => respond(201, await app.safety.report({ ...body, reporterId: member.id })),
     { auth: 'member' },
   )
 
   // ---- 運営 ----------------------------------------------------------------
   router.post(
-    '/admin/invitations',
-    ({ body, operatorId }) => respond(201, app.invitations.issueByOperator({ ...body, operatorId })),
+    '/api/admin/invitations',
+    async ({ body, operatorId }) =>
+      respond(201, await app.invitations.issueByOperator({ ...body, operatorId })),
     { auth: 'operator' },
   )
 
-  router.get('/admin/documents', () => app.verification.listPending(), { auth: 'operator' })
+  router.get('/api/admin/documents', () => app.verification.listPending(), { auth: 'operator' })
 
   router.post(
-    '/admin/documents/:id/approve',
-    ({ params, operatorId }) => app.verification.approve({ documentId: params.id, reviewerId: operatorId }),
-    { auth: 'operator' },
-  )
-
-  router.post(
-    '/admin/documents/:id/reject',
-    ({ params, body, operatorId }) =>
-      app.verification.reject({ documentId: params.id, reviewerId: operatorId, reason: body.reason }),
-    { auth: 'operator' },
-  )
-
-  router.get('/admin/screenings', () => app.screening.listPending().map(publicMember), {
-    auth: 'operator',
-  })
-
-  router.post(
-    '/admin/members/:id/approve',
+    '/api/admin/documents/:id/approve',
     ({ params, operatorId }) =>
-      publicMember(app.screening.approve({ memberId: params.id, reviewerId: operatorId })),
+      app.verification.approve({ documentId: params.id, reviewerId: operatorId }),
     { auth: 'operator' },
   )
 
   router.post(
-    '/admin/members/:id/reject',
+    '/api/admin/documents/:id/reject',
     ({ params, body, operatorId }) =>
-      publicMember(
-        app.screening.reject({ memberId: params.id, reviewerId: operatorId, reason: body.reason }),
+      app.verification.reject({
+        documentId: params.id,
+        reviewerId: operatorId,
+        reason: body.reason,
+      }),
+    { auth: 'operator' },
+  )
+
+  router.get(
+    '/api/admin/screenings',
+    async () => (await app.screening.listPending()).map(selfView),
+    { auth: 'operator' },
+  )
+
+  router.get(
+    '/api/admin/members/:id/screening',
+    ({ params }) => app.screening.requirements(params.id),
+    { auth: 'operator' },
+  )
+
+  router.post(
+    '/api/admin/members/:id/approve',
+    async ({ params, operatorId }) =>
+      selfView(await app.screening.approve({ memberId: params.id, reviewerId: operatorId })),
+    { auth: 'operator' },
+  )
+
+  router.post(
+    '/api/admin/members/:id/reject',
+    async ({ params, body, operatorId }) =>
+      selfView(
+        await app.screening.reject({
+          memberId: params.id,
+          reviewerId: operatorId,
+          reason: body.reason,
+        }),
       ),
     { auth: 'operator' },
   )
 
   router.post(
-    '/admin/members/:id/suspend',
-    ({ params, body, operatorId }) =>
-      publicMember(
-        app.screening.suspend({ memberId: params.id, reviewerId: operatorId, reason: body.reason }),
+    '/api/admin/members/:id/suspend',
+    async ({ params, body, operatorId }) =>
+      selfView(
+        await app.screening.suspend({
+          memberId: params.id,
+          reviewerId: operatorId,
+          reason: body.reason,
+        }),
       ),
     { auth: 'operator' },
   )
 
-  router.get('/admin/reports', ({ query }) => app.safety.listReports({ status: query.status }), {
+  router.get('/api/admin/reports', ({ query }) => app.safety.listReports({ status: query.status }), {
     auth: 'operator',
   })
 
-  return { router, publicMember }
+  return { router, selfView }
 }
 
 module.exports = { buildRoutes }

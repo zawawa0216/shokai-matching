@@ -1,11 +1,12 @@
-const { normalizeInvitationCode } = require('./support')
+const { normalizeInvitationCode } = require('../support')
 
 /**
- * インメモリのデータストア。
- * サービス層が永続化の実装を知らずに済むよう、コレクション単位の素朴な API に絞っている。
- * 本番では同じインターフェースの RDB 実装に差し替える想定。
+ * インメモリのデータストア。テストとローカル実行で使う。
+ *
+ * インターフェースは Supabase 実装（supabaseStore.js）と揃えるため、
+ * 同期で済む処理でもすべて Promise を返す。
  */
-function createStore() {
+function createMemoryStore() {
   const members = new Map()
   const invitations = new Map()
   const documents = new Map()
@@ -14,102 +15,109 @@ function createStore() {
   const messages = new Map()
   const reports = new Map()
   const blocks = new Map()
+  const sessions = new Map()
 
-  function all(map) {
-    return Array.from(map.values())
-  }
+  const all = (map) => Array.from(map.values())
 
   return {
+    async ready() {},
+
     members: {
-      save(member) {
+      async save(member) {
         members.set(member.id, member)
         return member
       },
-      find(id) {
+      async find(id) {
         return members.get(id)
       },
-      findByEmail(email) {
+      async findByEmail(email) {
         return all(members).find((m) => m.email === email)
       },
-      list() {
+      async listByStatus(status) {
+        return all(members).filter((m) => m.status === status)
+      },
+      async list() {
         return all(members)
       },
     },
 
     invitations: {
-      save(invitation) {
+      async save(invitation) {
         invitations.set(invitation.id, invitation)
         return invitation
       },
-      find(id) {
+      async find(id) {
         return invitations.get(id)
       },
-      findByCode(code) {
+      async findByCode(code) {
         const normalized = normalizeInvitationCode(code)
         return all(invitations).find((i) => normalizeInvitationCode(i.code) === normalized)
       },
-      listByReferrer(referrerId) {
+      async findOpenByEmail(email) {
+        return all(invitations).find((i) => i.inviteeEmail === email && i.status === 'ISSUED')
+      },
+      async listByReferrer(referrerId) {
         return all(invitations).filter((i) => i.referrerId === referrerId)
       },
-      list() {
+      async list() {
         return all(invitations)
       },
     },
 
     documents: {
-      save(document) {
+      async save(document) {
         documents.set(document.id, document)
         return document
       },
-      find(id) {
+      async find(id) {
         return documents.get(id)
       },
-      listByMember(memberId) {
+      async listByMember(memberId) {
         return all(documents).filter((d) => d.memberId === memberId)
       },
-      list() {
-        return all(documents)
+      async listByStatus(status) {
+        return all(documents).filter((d) => d.status === status)
       },
     },
 
     reactions: {
-      save(reaction) {
+      async save(reaction) {
         reactions.set(reaction.id, reaction)
         return reaction
       },
-      findBetween(fromId, toId) {
+      async findBetween(fromId, toId) {
         return all(reactions).find((r) => r.fromId === fromId && r.toId === toId)
       },
-      listSentBy(memberId) {
+      async listSentBy(memberId) {
         return all(reactions).filter((r) => r.fromId === memberId)
       },
-      listReceivedBy(memberId) {
+      async listReceivedBy(memberId) {
         return all(reactions).filter((r) => r.toId === memberId)
       },
     },
 
     matches: {
-      save(match) {
+      async save(match) {
         matches.set(match.id, match)
         return match
       },
-      find(id) {
+      async find(id) {
         return matches.get(id)
       },
-      findByMembers(a, b) {
+      async findByMembers(a, b) {
         return all(matches).find((m) => m.memberIds.includes(a) && m.memberIds.includes(b))
       },
-      listByMember(memberId) {
+      async listByMember(memberId) {
         return all(matches).filter((m) => m.memberIds.includes(memberId))
       },
     },
 
     messages: {
-      save(message) {
+      async save(message) {
         messages.set(message.id, message)
         return message
       },
-      listByMatch(matchId) {
+      async listByMatch(matchId) {
         return all(messages)
           .filter((m) => m.matchId === matchId)
           .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
@@ -117,35 +125,55 @@ function createStore() {
     },
 
     reports: {
-      save(report) {
+      async save(report) {
         reports.set(report.id, report)
         return report
       },
-      list() {
-        return all(reports)
+      async find(id) {
+        return reports.get(id)
+      },
+      async list(status) {
+        return all(reports).filter((r) => !status || r.status === status)
       },
     },
 
     blocks: {
       /** ブロックは方向を持つが、可視性の判定では双方向に効かせる。 */
-      add(blockerId, blockedId) {
+      async add(blockerId, blockedId) {
         blocks.set(`${blockerId}:${blockedId}`, {
           blockerId,
           blockedId,
           createdAt: new Date().toISOString(),
         })
       },
-      remove(blockerId, blockedId) {
+      async remove(blockerId, blockedId) {
         blocks.delete(`${blockerId}:${blockedId}`)
       },
-      exists(a, b) {
+      async exists(a, b) {
         return blocks.has(`${a}:${b}`) || blocks.has(`${b}:${a}`)
       },
-      listBy(blockerId) {
+      async listBy(blockerId) {
         return all(blocks).filter((b) => b.blockerId === blockerId)
+      },
+      async listInvolving(memberId) {
+        return all(blocks).filter((b) => b.blockerId === memberId || b.blockedId === memberId)
+      },
+    },
+
+    sessions: {
+      /** サーバーレスでは実行ごとにプロセスが変わるため、セッションも永続化する。 */
+      async save(session) {
+        sessions.set(session.token, session)
+        return session
+      },
+      async find(token) {
+        return sessions.get(token)
+      },
+      async remove(token) {
+        sessions.delete(token)
       },
     },
   }
 }
 
-module.exports = { createStore }
+module.exports = { createMemoryStore }

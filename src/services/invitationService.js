@@ -20,14 +20,6 @@ const RELATIONSHIPS = ['FRIEND', 'COLLEAGUE', 'CLASSMATE', 'FAMILY', 'CLIENT', '
  *  2. 招待には必ず紹介者が書いた紹介文が添付される
  */
 function createInvitationService({ store, clock, newId }) {
-  function validateIntroduction(input) {
-    const text = requireString(input, 'introduction', {
-      min: INTRODUCTION_MIN_LENGTH,
-      max: INTRODUCTION_MAX_LENGTH,
-    })
-    return text
-  }
-
   function isExpired(invitation, now = clock()) {
     return new Date(invitation.expiresAt).getTime() <= new Date(now).getTime()
   }
@@ -44,8 +36,11 @@ function createInvitationService({ store, clock, newId }) {
     }
   }
 
-  function buildInvitation({ referrerId, issuedByOperatorId, payload, now }) {
-    const introduction = validateIntroduction(payload.introduction)
+  async function buildInvitation({ referrerId, issuedByOperatorId, payload, now }) {
+    const introduction = requireString(payload.introduction, 'introduction', {
+      min: INTRODUCTION_MIN_LENGTH,
+      max: INTRODUCTION_MAX_LENGTH,
+    })
     const inviteeName = requireString(payload.inviteeName, 'inviteeName', { max: 60 })
     const inviteeEmail = requireEmail(payload.inviteeEmail, 'inviteeEmail')
     const relationship = payload.relationship || 'OTHER'
@@ -57,16 +52,12 @@ function createInvitationService({ store, clock, newId }) {
     }
     const knownSince = optionalString(payload.knownSince, 'knownSince', { max: 60 })
 
-    if (store.members.findByEmail(inviteeEmail)) {
+    if (await store.members.findByEmail(inviteeEmail)) {
       throw new ConflictError('MEMBER_ALREADY_EXISTS', 'このメールアドレスは既に登録されています')
     }
 
-    const openForSameEmail = store.invitations
-      .list()
-      .find(
-        (i) => i.inviteeEmail === inviteeEmail && i.status === INVITATION_STATUS.ISSUED && !isExpired(i, now),
-      )
-    if (openForSameEmail) {
+    const open = await store.invitations.findOpenByEmail(inviteeEmail)
+    if (open && !isExpired(open, now)) {
       throw new ConflictError(
         'INVITATION_ALREADY_ISSUED',
         'このメールアドレス宛の有効な招待が既に存在します',
@@ -96,6 +87,7 @@ function createInvitationService({ store, clock, newId }) {
       expiresAt: addDays(now, INVITATION_TTL_DAYS).toISOString(),
       usedAt: null,
       usedByMemberId: null,
+      revokedAt: null,
     })
   }
 
@@ -103,20 +95,18 @@ function createInvitationService({ store, clock, newId }) {
     RELATIONSHIPS,
 
     /** 既存のアクティブ会員が知人を紹介する。 */
-    issue({ referrerId, ...payload }) {
+    async issue({ referrerId, ...payload }) {
       const now = clock()
-      const referrer = store.members.find(referrerId)
+      const referrer = await store.members.find(referrerId)
       if (!referrer) throw new NotFoundError('紹介者が見つかりません')
       if (referrer.status !== MEMBER_STATUS.ACTIVE) {
-        throw new ForbiddenError(
-          'REFERRER_NOT_ACTIVE',
-          '審査を通過した会員のみ紹介を発行できます',
-        )
+        throw new ForbiddenError('REFERRER_NOT_ACTIVE', '審査を通過した会員のみ紹介を発行できます')
       }
 
-      const openCount = store.invitations
-        .listByReferrer(referrerId)
-        .filter((i) => i.status === INVITATION_STATUS.ISSUED && !isExpired(i, now)).length
+      const issued = await store.invitations.listByReferrer(referrerId)
+      const openCount = issued.filter(
+        (i) => i.status === INVITATION_STATUS.ISSUED && !isExpired(i, now),
+      ).length
       if (openCount >= MAX_OPEN_INVITATIONS) {
         throw new ConflictError(
           'INVITATION_LIMIT_REACHED',
@@ -128,18 +118,17 @@ function createInvitationService({ store, clock, newId }) {
     },
 
     /** 立ち上げ期の初期会員など、運営が直接発行する招待。紹介文は運営が書く。 */
-    issueByOperator({ operatorId, ...payload }) {
-      const now = clock()
+    async issueByOperator({ operatorId, ...payload }) {
       requireString(operatorId, 'operatorId')
-      return buildInvitation({ issuedByOperatorId: operatorId, payload, now })
+      return buildInvitation({ issuedByOperatorId: operatorId, payload, now: clock() })
     },
 
     /** 登録画面で招待コードの有効性と紹介文を表示するための参照。 */
-    lookup(code) {
-      const invitation = store.invitations.findByCode(code)
+    async lookup(code) {
+      const invitation = await store.invitations.findByCode(code)
       if (!invitation) throw new NotFoundError('招待コードが見つかりません')
       assertUsable(invitation)
-      const referrer = invitation.referrerId ? store.members.find(invitation.referrerId) : null
+      const referrer = invitation.referrerId ? await store.members.find(invitation.referrerId) : null
       return {
         id: invitation.id,
         inviteeName: invitation.inviteeName,
@@ -153,8 +142,8 @@ function createInvitationService({ store, clock, newId }) {
       }
     },
 
-    revoke({ invitationId, actorId }) {
-      const invitation = store.invitations.find(invitationId)
+    async revoke({ invitationId, actorId }) {
+      const invitation = await store.invitations.find(invitationId)
       if (!invitation) throw new NotFoundError('招待が見つかりません')
       if (invitation.referrerId && invitation.referrerId !== actorId) {
         throw new ForbiddenError('NOT_INVITATION_OWNER', 'この招待を取り消す権限がありません')
@@ -167,14 +156,14 @@ function createInvitationService({ store, clock, newId }) {
       return store.invitations.save(invitation)
     },
 
-    listByReferrer(referrerId) {
+    async listByReferrer(referrerId) {
       return store.invitations.listByReferrer(referrerId)
     },
 
     /** 会員登録時に memberService から呼ばれる内部 API。 */
-    consume({ code, memberId }) {
+    async consume({ code, memberId }) {
       const now = clock()
-      const invitation = store.invitations.findByCode(code)
+      const invitation = await store.invitations.findByCode(code)
       if (!invitation) throw new NotFoundError('招待コードが見つかりません')
       assertUsable(invitation, now)
       invitation.status = INVITATION_STATUS.USED

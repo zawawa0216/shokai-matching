@@ -4,22 +4,23 @@
 
 ## プロジェクト概要
 
-紹介制マッチングアプリのバックエンドです。外部ランタイム依存はなく、
-Node.js 標準ライブラリと Jest だけで構成しています。仕様の全体像は `README.md` を参照。
+紹介制マッチングアプリ。Supabase(Postgres) に永続化し、Vercel で動かします。
+実行時の外部依存パッケージはなく、Node.js 標準ライブラリと Jest だけで構成しています。
+仕様とデプロイ手順は `README.md` を参照。
 
 ## リポジトリ構成
 
 ```
-index.js            # ライブラリとしてのエクスポート（createApp / createHttpServer）
-server.js           # HTTP サーバーの起動
-src/app.js          # 合成ルート
-src/store.js        # インメモリのデータストア
-src/domain/         # 定数・日付計算・バリデーション
-src/services/       # 招待・会員・本人確認・審査・マッチング・メッセージ・安全
-src/api/            # ルーター・ルート定義・node:http サーバー
-demo/index.html     # 体験版の画面
-tools/              # 体験版のビルド（src/ をブラウザ用に束ねる）
-tests/              # Jest テスト
+public/             フロントエンド（ビルド不要の素の HTML/CSS/JS）
+api/[...path].js    Vercel のサーバーレス関数エントリ
+server.js           ローカル用サーバー
+src/app.js          合成ルート
+src/store/          memoryStore / supabaseStore / postgrest
+src/domain/         定数・日付計算・バリデーション
+src/services/       招待・会員・本人確認・審査・マッチング・メッセージ・安全
+src/api/            ルーター・ルート定義・ハンドラ
+scripts/seed.js     稼働中の API に初期会員を投入
+tests/              Jest テスト
 ```
 
 ## 開発コマンド
@@ -28,21 +29,15 @@ tests/              # Jest テスト
 npm install
 npm test                          # 全テストの実行
 npx jest tests/matching.test.js   # 単一ファイル
-OPERATOR_KEY=secret npm start     # ローカル起動
-npm run build:demo                # dist/demo.html を書き出す
+OPERATOR_KEY=devkey npm start     # ローカル起動（http://localhost:3000）
+npm run seed -- --base http://localhost:3000 --operator-key devkey
 ```
 
-## 体験版について
+Supabase 実装を検証するときだけ、資格情報を渡して結合テストを走らせる。
 
-`demo/index.html` は UI だけを持ち、ドメインロジックは `src/` のコードを
-`tools/build-demo.js` が束ねたものをそのまま読み込む。
-
-- **デモ側にルールを書き写さない。** 年齢や文字数の判定を UI に複製すると本体と乖離する
-- 新しいサービスを `src/services/` に足したら `tools/build-demo.js` の `ENTRIES` にも追加する
-- ブラウザ用の `node:crypto` スタブは `tools/build-demo.js` の `PRELUDE` にあり、
-  パスワードハッシュはデモ専用の簡易実装。本番の認証に使わない
-- 体験版の初期データも実サービス経由で作るため、規約（自己紹介100文字など）を
-  満たさない文面を書くと起動時に落ちる。変更したら `npm test` で確認する
+```bash
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... npx jest supabaseStore
+```
 
 ## 崩してはいけない不変条件
 
@@ -60,6 +55,7 @@ npm run build:demo                # dist/demo.html を書き出す
 
 - CommonJS モジュール形式（`require` / `module.exports`）。TypeScript・ビルドステップなし
 - サービスは `createXxxService({ store, clock, newId, ... })` の形のファクトリ関数で書く
+- **サービス層のメソッドはすべて async。** ストアは Promise を返す前提で、`await` を落とさない
 - 現在時刻は必ず注入された `clock()` から取る。`new Date()` を直接呼ばない
 - ID と招待コードの生成は `newId` 経由。サービス内で `crypto` を直接使わない
 - 日付は `src/domain/dates.js` の UTC 前提のヘルパーを使う（タイムゾーンで年齢が1日ずれるため）
@@ -67,16 +63,35 @@ npm run build:demo                # dist/demo.html を書き出す
 - エラーは `src/errors.js` の `AppError` サブクラスを投げる。API 層が `code` と `status` をそのまま返す
 - 利用者向けのメッセージは日本語で書く
 
+## ストア層の注意
+
+- `memoryStore` と `supabaseStore` は同じインターフェースを実装する。
+  片方にメソッドを足したら必ずもう片方にも足す
+- snake_case ↔ camelCase の対応は `supabaseStore.js` の mapper に集約する。
+  サービス層に列名を漏らさない
+- 新しいテーブルを足すときは RLS を有効にし、ポリシーは置かない
+  （サーバーのサービスロール以外からアクセスさせない）
+- スキーマ変更は Supabase のマイグレーションとして適用し、README の表も更新する
+
 ## API 層の注意
 
 - ハンドラの戻り値は既定で 200。ステータスを変えるときは `respond(status, body)` を使う
   （ドメインオブジェクトも `status` を持つため、プロパティの有無で判定してはいけない）
 - 他会員に返すプロフィールは `matchingService.toPublicProfile` を通す。
   メールアドレスと `credentials` を素で返さない
+- ルートのパスは `/api/` から始める。Vercel の catch-all と `server.js` の振り分けが前提にしている
+
+## フロントエンドの注意
+
+- ビルドステップを増やさない。`public/` の3ファイルで完結させる
+- ルールの判定を JS 側に複製しない。文字数カウンタのような表示上の補助は良いが、
+  可否の最終判断は必ず API のエラーに従う
+- スワイプカードは `touch-action: pan-y`。縦スクロールは端末に任せ、横だけ JS で扱う
 
 ## テストのガイドライン
 
 - 変更後は必ず `npm test` を実行する
+- 非同期になったので、失敗の検証は `await expect(...).rejects.toThrow()` を使う
 - 時間に依存する検証（招待の期限、独身証明書の失効、誕生日）は `tests/helpers.js` の
   `createTestClock` で時刻を進める。実時間に依存させない
 - 会員を用意するときは `seedActiveMember` / `seedInvitation` を使う
@@ -88,3 +103,4 @@ npm run build:demo                # dist/demo.html を書き出す
 - 外部ランタイム依存パッケージはユーザーに確認してから追加する
 - 個人情報（身分証の画像参照・生年月日・メールアドレス）をログやエラーメッセージに含めない
 - 認証情報は `authService` の外に出さない。パスワードを平文で保持・返却しない
+- サービスロールキーをリポジトリに書かない。環境変数だけで受け取る

@@ -23,8 +23,8 @@ describe('会員登録', () => {
     ;({ app } = createTestApp(NOW))
   })
 
-  test('招待コードがなければ登録できない', () => {
-    expect(() =>
+  test('招待コードがなければ登録できない', async () => {
+    await expect(
       app.members.register({
         invitationCode: 'AAAAA-BBBBB',
         email: 'nobody@example.com',
@@ -34,86 +34,86 @@ describe('会員登録', () => {
         gender: 'MALE',
         prefecture: '東京都',
       }),
-    ).toThrow('招待コードが見つかりません')
+    ).rejects.toThrow('招待コードが見つかりません')
   })
 
-  test('招待されたメールアドレス以外では登録できない', () => {
-    const invitation = seedInvitation(app)
-    expect(() => registerWith(app, invitation, { email: 'someone.else@example.com' })).toThrow(
-      '招待されたメールアドレスと一致しません',
-    )
+  test('招待されたメールアドレス以外では登録できない', async () => {
+    const invitation = await seedInvitation(app)
+    await expect(
+      registerWith(app, invitation, { email: 'someone.else@example.com' }),
+    ).rejects.toThrow('招待されたメールアドレスと一致しません')
   })
 
-  test('登録すると招待は使用済みになり、二重登録できない', () => {
-    const invitation = seedInvitation(app)
-    const member = registerWith(app, invitation)
+  test('登録すると招待は使用済みになり、二重登録できない', async () => {
+    const invitation = await seedInvitation(app)
+    const member = await registerWith(app, invitation)
 
     expect(member.status).toBe(MEMBER_STATUS.PENDING_PROFILE)
-    expect(app.store.invitations.find(invitation.id).usedByMemberId).toBe(member.id)
-    expect(() => registerWith(app, invitation, { email: invitation.inviteeEmail })).toThrow(
+    expect((await app.store.invitations.find(invitation.id)).usedByMemberId).toBe(member.id)
+    await expect(registerWith(app, invitation)).rejects.toThrow(
       /既に使用されています|既に登録されています/,
     )
   })
 
-  test(`${MIN_AGE}歳未満は登録できない`, () => {
-    const invitation = seedInvitation(app)
+  test(`${MIN_AGE}歳未満は登録できない`, async () => {
+    const invitation = await seedInvitation(app)
     // 2026-01-15 時点で29歳
-    expect(() => registerWith(app, invitation, { birthDate: '1996-06-01' })).toThrow(
+    await expect(registerWith(app, invitation, { birthDate: '1996-06-01' })).rejects.toThrow(
       `${MIN_AGE}歳以上`,
     )
   })
 
-  test('誕生日当日に30歳になる人は登録できる', () => {
-    const invitation = seedInvitation(app)
-    const member = registerWith(app, invitation, { birthDate: '1996-01-15' })
+  test('誕生日当日に30歳になる人は登録できる', async () => {
+    const invitation = await seedInvitation(app)
+    const member = await registerWith(app, invitation, { birthDate: '1996-01-15' })
     expect(member.age).toBe(MIN_AGE)
   })
 
-  test('誕生日の前日はまだ29歳として扱う', () => {
-    const invitation = seedInvitation(app)
-    expect(() => registerWith(app, invitation, { birthDate: '1996-01-16' })).toThrow(
+  test('誕生日の前日はまだ29歳として扱う', async () => {
+    const invitation = await seedInvitation(app)
+    await expect(registerWith(app, invitation, { birthDate: '1996-01-16' })).rejects.toThrow(
       `${MIN_AGE}歳以上`,
     )
   })
 
-  test('紹介者が書いた紹介文が会員に引き継がれる', () => {
-    const invitation = seedInvitation(app, { introduction: longText('引き継ぎ確認') })
-    const member = registerWith(app, invitation)
+  test('紹介者が書いた紹介文が会員に引き継がれる', async () => {
+    const invitation = await seedInvitation(app, { introduction: longText('引き継ぎ確認') })
+    const member = await registerWith(app, invitation)
     expect(member.introduction.text).toBe(invitation.introduction.text)
     expect(member.invitationId).toBe(invitation.id)
   })
 
-  test('紹介文は本人がプロフィール更新で書き換えられない', () => {
-    const invitation = seedInvitation(app)
-    const member = registerWith(app, invitation)
+  test('紹介文は本人がプロフィール更新で書き換えられない', async () => {
+    const invitation = await seedInvitation(app)
+    const member = await registerWith(app, invitation)
     const original = member.introduction.text
 
-    app.members.updateProfile(member.id, {
+    await app.members.updateProfile(member.id, {
       bio: longText('自己紹介'),
       introduction: { text: '自分で書いた紹介文' },
     })
 
-    expect(app.members.get(member.id).introduction.text).toBe(original)
+    expect((await app.members.get(member.id)).introduction.text).toBe(original)
   })
 
-  test('パスワードは平文で保存されない', () => {
-    const invitation = seedInvitation(app)
-    const member = registerWith(app, invitation, { password: 'super-secret-1234' })
+  test('パスワードは平文で保存されない', async () => {
+    const invitation = await seedInvitation(app)
+    const member = await registerWith(app, invitation, { password: 'super-secret-1234' })
     expect(JSON.stringify(member.credentials)).not.toContain('super-secret-1234')
     expect(app.auth.verifyPassword(member, 'super-secret-1234')).toBe(true)
     expect(app.auth.verifyPassword(member, 'wrong-password-1')).toBe(false)
   })
 
-  test('短すぎるパスワードは拒否される', () => {
-    const invitation = seedInvitation(app)
-    expect(() => registerWith(app, invitation, { password: 'short' })).toThrow('password')
+  test('短すぎるパスワードは拒否される', async () => {
+    const invitation = await seedInvitation(app)
+    await expect(registerWith(app, invitation, { password: 'short' })).rejects.toThrow('password')
   })
 
-  test('自己紹介文は100文字以上が必要', () => {
-    const invitation = seedInvitation(app)
-    const member = registerWith(app, invitation)
-    expect(() => app.members.updateProfile(member.id, { bio: 'よろしくお願いします。' })).toThrow(
-      'bio',
-    )
+  test('自己紹介文は100文字以上が必要', async () => {
+    const invitation = await seedInvitation(app)
+    const member = await registerWith(app, invitation)
+    await expect(
+      app.members.updateProfile(member.id, { bio: 'よろしくお願いします。' }),
+    ).rejects.toThrow('bio')
   })
 })

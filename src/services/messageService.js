@@ -10,12 +10,12 @@ function createMessageService({ store, clock, newId, matchingService }) {
   return {
     MESSAGE_MAX_LENGTH,
 
-    send({ matchId, senderId, body }) {
-      const match = matchingService.getMatchFor(matchId, senderId)
+    async send({ matchId, senderId, body }) {
+      const match = await matchingService.getMatchFor(matchId, senderId)
       if (match.status !== 'ACTIVE') {
         throw new ConflictError('MATCH_CLOSED', 'このマッチは終了しています')
       }
-      if (store.blocks.exists(...match.memberIds)) {
+      if (await store.blocks.exists(...match.memberIds)) {
         throw new ConflictError('BLOCKED', 'この相手にはメッセージを送れません')
       }
       return store.messages.save({
@@ -28,21 +28,22 @@ function createMessageService({ store, clock, newId, matchingService }) {
       })
     },
 
-    list({ matchId, memberId }) {
-      matchingService.getMatchFor(matchId, memberId)
+    async list({ matchId, memberId }) {
+      await matchingService.getMatchFor(matchId, memberId)
       return store.messages.listByMatch(matchId)
     },
 
-    markRead({ matchId, memberId }) {
-      matchingService.getMatchFor(matchId, memberId)
+    async markRead({ matchId, memberId }) {
+      await matchingService.getMatchFor(matchId, memberId)
       const now = new Date(clock()).toISOString()
-      return store.messages
-        .listByMatch(matchId)
-        .filter((m) => m.senderId !== memberId && !m.readAt)
-        .map((m) => {
+      const messages = await store.messages.listByMatch(matchId)
+      const unread = messages.filter((m) => m.senderId !== memberId && !m.readAt)
+      return Promise.all(
+        unread.map((m) => {
           m.readAt = now
           return store.messages.save(m)
-        })
+        }),
+      )
     },
   }
 }

@@ -1,11 +1,11 @@
 {
   "name": "claude-test",
-  "version": "2.0.0",
-  "description": "紹介制マッチングアプリのバックエンド（紹介文必須・本人確認必須・30歳以上）",
+  "version": "3.0.0",
+  "description": "紹介制マッチングアプリ（紹介文必須・本人確認必須・30歳以上）",
   "main": "index.js",
   "scripts": {
     "start": "node server.js",
-    "build:demo": "node tools/build-artifact.js",
+    "seed": "node scripts/seed.js",
     "test": "jest"
   },
   "engines": {

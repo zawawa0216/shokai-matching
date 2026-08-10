@@ -1,4 +1,4 @@
-const { createStore } = require('./store')
+const { createMemoryStore } = require('./store/memoryStore')
 const { systemClock, createIdGenerator, generateInvitationCode } = require('./support')
 const { createAuthService } = require('./services/authService')
 const { createInvitationService } = require('./services/invitationService')
@@ -24,10 +24,14 @@ function defaultIdFactory() {
 }
 
 /**
- * 合成ルート。clock と ID 生成をここでだけ注入し、
- * サービス層は実時間・乱数に直接触れないようにしている。
+ * 合成ルート。clock と ID 生成、そして永続化の実装をここでだけ注入する。
+ * store を差し替えるだけでインメモリと Supabase を切り替えられる。
  */
-function createApp({ clock = systemClock, newId = defaultIdFactory(), store = createStore() } = {}) {
+function createApp({
+  clock = systemClock,
+  newId = defaultIdFactory(),
+  store = createMemoryStore(),
+} = {}) {
   const auth = createAuthService({ store, clock })
   const invitations = createInvitationService({ store, clock, newId })
   const members = createMemberService({ store, clock, newId, invitationService: invitations, auth })
@@ -42,7 +46,18 @@ function createApp({ clock = systemClock, newId = defaultIdFactory(), store = cr
   const messages = createMessageService({ store, clock, newId, matchingService: matching })
   const safety = createSafetyService({ store, clock, newId })
 
-  return { store, clock, auth, invitations, members, verification, screening, matching, messages, safety }
+  return {
+    store,
+    clock,
+    auth,
+    invitations,
+    members,
+    verification,
+    screening,
+    matching,
+    messages,
+    safety,
+  }
 }
 
 module.exports = { createApp, defaultIdFactory }

@@ -15,8 +15,8 @@ const REPORT_REASONS = [
  * 運営が紹介元まで遡れるようにしておく。
  */
 function createSafetyService({ store, clock, newId }) {
-  function getMember(memberId) {
-    const member = store.members.find(memberId)
+  async function getMember(memberId) {
+    const member = await store.members.find(memberId)
     if (!member) throw new NotFoundError('会員が見つかりません')
     return member
   }
@@ -24,36 +24,36 @@ function createSafetyService({ store, clock, newId }) {
   return {
     REPORT_REASONS,
 
-    block({ blockerId, blockedId }) {
-      const blocker = getMember(blockerId)
-      const blocked = getMember(blockedId)
+    async block({ blockerId, blockedId }) {
+      const blocker = await getMember(blockerId)
+      const blocked = await getMember(blockedId)
       if (blocker.id === blocked.id) {
         throw new ForbiddenError('SELF_BLOCK', '自分自身はブロックできません')
       }
-      store.blocks.add(blocker.id, blocked.id)
+      await store.blocks.add(blocker.id, blocked.id)
 
-      const match = store.matches.findByMembers(blocker.id, blocked.id)
+      const match = await store.matches.findByMembers(blocker.id, blocked.id)
       if (match && match.status === 'ACTIVE') {
         match.status = 'CLOSED'
         match.closedAt = new Date(clock()).toISOString()
         match.closedBy = blocker.id
-        store.matches.save(match)
+        await store.matches.save(match)
       }
       return { blockerId: blocker.id, blockedId: blocked.id }
     },
 
-    unblock({ blockerId, blockedId }) {
-      store.blocks.remove(blockerId, blockedId)
+    async unblock({ blockerId, blockedId }) {
+      await store.blocks.remove(blockerId, blockedId)
       return { blockerId, blockedId }
     },
 
-    listBlocks(memberId) {
+    async listBlocks(memberId) {
       return store.blocks.listBy(memberId)
     },
 
-    report({ reporterId, targetId, reason, detail }) {
-      const reporter = getMember(reporterId)
-      const target = getMember(targetId)
+    async report({ reporterId, targetId, reason, detail }) {
+      const reporter = await getMember(reporterId)
+      const target = await getMember(targetId)
       requireEnum(reason, REPORT_REASONS, 'reason')
       return store.reports.save({
         id: newId.report(),
@@ -65,15 +65,18 @@ function createSafetyService({ store, clock, newId }) {
         detail: requireString(detail ?? '', 'detail', { min: 0, max: 1000 }) || null,
         status: 'OPEN',
         createdAt: new Date(clock()).toISOString(),
+        reviewerId: null,
+        resolution: null,
+        resolvedAt: null,
       })
     },
 
-    listReports({ status } = {}) {
-      return store.reports.list().filter((r) => !status || r.status === status)
+    async listReports({ status } = {}) {
+      return store.reports.list(status)
     },
 
-    resolveReport({ reportId, reviewerId, resolution }) {
-      const report = store.reports.list().find((r) => r.id === reportId)
+    async resolveReport({ reportId, reviewerId, resolution }) {
+      const report = await store.reports.find(reportId)
       if (!report) throw new NotFoundError('通報が見つかりません')
       report.status = 'RESOLVED'
       report.reviewerId = requireString(reviewerId, 'reviewerId')

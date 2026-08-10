@@ -29,8 +29,8 @@ function createMemberService({ store, clock, newId, invitationService, auth }) {
     return age
   }
 
-  function get(memberId) {
-    const member = store.members.find(memberId)
+  async function get(memberId) {
+    const member = await store.members.find(memberId)
     if (!member) throw new NotFoundError('会員が見つかりません')
     return member
   }
@@ -52,18 +52,15 @@ function createMemberService({ store, clock, newId, invitationService, auth }) {
     PROFILE_BIO_MIN_LENGTH,
 
     /** 招待コードを消費して会員を作る。ここが唯一の会員生成経路。 */
-    register({ invitationCode, email, password, displayName, birthDate, gender, prefecture }) {
+    async register({ invitationCode, email, password, displayName, birthDate, gender, prefecture }) {
       const now = clock()
-      const invitation = invitationService.lookup(invitationCode)
+      const invitation = await invitationService.lookup(invitationCode)
 
       const normalizedEmail = requireEmail(email)
       if (normalizedEmail !== invitation.inviteeEmail) {
-        throw new ForbiddenError(
-          'EMAIL_MISMATCH',
-          '招待されたメールアドレスと一致しません',
-        )
+        throw new ForbiddenError('EMAIL_MISMATCH', '招待されたメールアドレスと一致しません')
       }
-      if (store.members.findByEmail(normalizedEmail)) {
+      if (await store.members.findByEmail(normalizedEmail)) {
         throw new ConflictError('MEMBER_ALREADY_EXISTS', 'このメールアドレスは既に登録されています')
       }
 
@@ -71,7 +68,7 @@ function createMemberService({ store, clock, newId, invitationService, auth }) {
       parseDateOnly(birthDate, 'birthDate')
       const age = assertAdult(birthDate, now)
 
-      const member = store.members.save({
+      const member = await store.members.save({
         id: newId.member(),
         email: normalizedEmail,
         credentials: auth.createCredentials(password),
@@ -98,17 +95,20 @@ function createMemberService({ store, clock, newId, invitationService, auth }) {
           singleCertified: false,
         },
         verifiedBirthDate: null,
+        singleCertifiedUntil: null,
         createdAt: new Date(now).toISOString(),
         activatedAt: null,
+        withdrawnAt: null,
+        suspension: null,
         screening: { submittedAt: null, reviewedAt: null, reviewerId: null, reason: null },
       })
 
-      invitationService.consume({ code: invitationCode, memberId: member.id })
+      await invitationService.consume({ code: invitationCode, memberId: member.id })
       return member
     },
 
-    updateProfile(memberId, patch) {
-      const member = get(memberId)
+    async updateProfile(memberId, patch) {
+      const member = await get(memberId)
       if ([MEMBER_STATUS.WITHDRAWN, MEMBER_STATUS.SUSPENDED].includes(member.status)) {
         throw new ForbiddenError('MEMBER_NOT_EDITABLE', 'この会員のプロフィールは編集できません')
       }
@@ -146,9 +146,9 @@ function createMemberService({ store, clock, newId, invitationService, auth }) {
     },
 
     /** 他の会員が後から追記する推薦文。任意だが信頼の裏付けになる。 */
-    addEndorsement({ memberId, authorId, text }) {
-      const member = get(memberId)
-      const author = get(authorId)
+    async addEndorsement({ memberId, authorId, text }) {
+      const member = await get(memberId)
+      const author = await get(authorId)
       if (author.status !== MEMBER_STATUS.ACTIVE) {
         throw new ForbiddenError('ENDORSER_NOT_ACTIVE', '推薦文はアクティブ会員のみ投稿できます')
       }
@@ -171,8 +171,8 @@ function createMemberService({ store, clock, newId, invitationService, auth }) {
       return store.members.save(member)
     },
 
-    withdraw(memberId) {
-      const member = get(memberId)
+    async withdraw(memberId) {
+      const member = await get(memberId)
       member.status = MEMBER_STATUS.WITHDRAWN
       member.withdrawnAt = new Date(clock()).toISOString()
       return store.members.save(member)

@@ -26,8 +26,7 @@ function createTestClock(initial = '2026-01-15T09:00:00.000Z') {
 
 function createTestApp(initialTime) {
   const clock = createTestClock(initialTime)
-  const app = createApp({ clock })
-  return { app, clock }
+  return { app: createApp({ clock }), clock }
 }
 
 let sequence = 0
@@ -36,7 +35,7 @@ let sequence = 0
  * 招待発行から入会審査通過までを一気に進め、ACTIVE な会員を作る。
  * referrerId を渡すとその会員からの紹介、省略すると運営発行の招待になる。
  */
-function seedActiveMember(app, overrides = {}) {
+async function seedActiveMember(app, overrides = {}) {
   sequence += 1
   const {
     referrerId = null,
@@ -59,10 +58,10 @@ function seedActiveMember(app, overrides = {}) {
   }
 
   const invitation = referrerId
-    ? app.invitations.issue({ referrerId, ...invitationPayload })
-    : app.invitations.issueByOperator({ operatorId: OPERATOR_ID, ...invitationPayload })
+    ? await app.invitations.issue({ referrerId, ...invitationPayload })
+    : await app.invitations.issueByOperator({ operatorId: OPERATOR_ID, ...invitationPayload })
 
-  const member = app.members.register({
+  const member = await app.members.register({
     invitationCode: invitation.code,
     email,
     password,
@@ -72,7 +71,7 @@ function seedActiveMember(app, overrides = {}) {
     prefecture,
   })
 
-  app.members.updateProfile(member.id, {
+  await app.members.updateProfile(member.id, {
     occupation: 'デザイナー',
     bio: longText(`${displayName}の自己紹介`),
     intent,
@@ -80,34 +79,33 @@ function seedActiveMember(app, overrides = {}) {
     hobbies: ['登山', '料理'],
   })
 
-  const identity = app.verification.submitIdentityDocument({
+  const identity = await app.verification.submitIdentityDocument({
     memberId: member.id,
     docType: 'PASSPORT',
     imageRef: 'identity-1.jpg',
     fullName: displayName,
     birthDate,
   })
-  app.verification.approve({ documentId: identity.id, reviewerId: OPERATOR_ID })
+  await app.verification.approve({ documentId: identity.id, reviewerId: OPERATOR_ID })
 
   if (singleCertified) {
-    const issuedOn = new Date(app.clock()).toISOString().slice(0, 10)
-    const cert = app.verification.submitSingleStatusCertificate({
+    const cert = await app.verification.submitSingleStatusCertificate({
       memberId: member.id,
       imageRef: 'single-cert.jpg',
       fullName: displayName,
-      issuedOn,
+      issuedOn: new Date(app.clock()).toISOString().slice(0, 10),
     })
-    app.verification.approve({ documentId: cert.id, reviewerId: OPERATOR_ID })
+    await app.verification.approve({ documentId: cert.id, reviewerId: OPERATOR_ID })
   }
 
-  app.screening.submit(member.id)
-  app.screening.approve({ memberId: member.id, reviewerId: OPERATOR_ID })
+  await app.screening.submit(member.id)
+  await app.screening.approve({ memberId: member.id, reviewerId: OPERATOR_ID })
 
   return app.members.get(member.id)
 }
 
 /** 招待だけ発行して、登録前の状態を作る。 */
-function seedInvitation(app, overrides = {}) {
+async function seedInvitation(app, overrides = {}) {
   sequence += 1
   const payload = {
     inviteeName: overrides.inviteeName || `候補者${sequence}`,

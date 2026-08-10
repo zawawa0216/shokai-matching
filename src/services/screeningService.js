@@ -14,14 +14,20 @@ const { NotFoundError, ConflictError } = require('../errors')
  * 独身証明書は任意なので、審査条件には含めない。
  */
 function createScreeningService({ store, clock, memberService, verificationService }) {
-  function requirements(memberId) {
-    const member = memberService.get(memberId)
+  async function get(memberId) {
+    const member = await store.members.find(memberId)
+    if (!member) throw new NotFoundError('会員が見つかりません')
+    return member
+  }
+
+  async function requirements(memberId) {
+    const member = await memberService.get(memberId)
     const missingProfile = memberService.missingProfileFields(member)
-    const identityApproved = verificationService.hasApprovedIdentity(memberId)
+    const identityApproved = await verificationService.hasApprovedIdentity(memberId)
     const verifiedAge = member.verifiedBirthDate
       ? calculateAge(member.verifiedBirthDate, clock())
       : null
-    const singleCert = verificationService.latestOfKind(memberId, DOCUMENT_KIND.SINGLE_STATUS)
+    const singleCert = await verificationService.latestOfKind(memberId, DOCUMENT_KIND.SINGLE_STATUS)
 
     const checks = {
       referredByMember: Boolean(member.invitationId),
@@ -46,25 +52,19 @@ function createScreeningService({ store, clock, memberService, verificationServi
     }
   }
 
-  function get(memberId) {
-    const member = store.members.find(memberId)
-    if (!member) throw new NotFoundError('会員が見つかりません')
-    return member
-  }
-
   return {
     requirements,
 
     /** 必要書類とプロフィールが揃ったら審査待ちに進める。 */
-    submit(memberId) {
-      const member = get(memberId)
+    async submit(memberId) {
+      const member = await get(memberId)
       if (member.status === MEMBER_STATUS.ACTIVE) {
         throw new ConflictError('ALREADY_ACTIVE', 'この会員は既に入会済みです')
       }
       if (member.status === MEMBER_STATUS.PENDING_SCREENING) {
         throw new ConflictError('ALREADY_SUBMITTED', '既に審査待ちです')
       }
-      const result = requirements(memberId)
+      const result = await requirements(memberId)
       if (!result.eligible) {
         const unmet = Object.entries(result.checks)
           .filter(([, ok]) => !ok)
@@ -79,12 +79,12 @@ function createScreeningService({ store, clock, memberService, verificationServi
       return store.members.save(member)
     },
 
-    approve({ memberId, reviewerId }) {
-      const member = get(memberId)
+    async approve({ memberId, reviewerId }) {
+      const member = await get(memberId)
       if (member.status !== MEMBER_STATUS.PENDING_SCREENING) {
         throw new ConflictError('NOT_PENDING_SCREENING', 'この会員は審査待ちではありません')
       }
-      const result = requirements(memberId)
+      const result = await requirements(memberId)
       if (!result.eligible) {
         throw new ConflictError('SCREENING_REQUIREMENTS_NOT_MET', '入会条件を満たしていません')
       }
@@ -97,8 +97,8 @@ function createScreeningService({ store, clock, memberService, verificationServi
       return store.members.save(member)
     },
 
-    reject({ memberId, reviewerId, reason }) {
-      const member = get(memberId)
+    async reject({ memberId, reviewerId, reason }) {
+      const member = await get(memberId)
       if (member.status !== MEMBER_STATUS.PENDING_SCREENING) {
         throw new ConflictError('NOT_PENDING_SCREENING', 'この会員は審査待ちではありません')
       }
@@ -109,8 +109,8 @@ function createScreeningService({ store, clock, memberService, verificationServi
       return store.members.save(member)
     },
 
-    suspend({ memberId, reviewerId, reason }) {
-      const member = get(memberId)
+    async suspend({ memberId, reviewerId, reason }) {
+      const member = await get(memberId)
       member.status = MEMBER_STATUS.SUSPENDED
       member.suspension = {
         reviewerId: requireString(reviewerId, 'reviewerId'),
@@ -120,8 +120,8 @@ function createScreeningService({ store, clock, memberService, verificationServi
       return store.members.save(member)
     },
 
-    reinstate({ memberId }) {
-      const member = get(memberId)
+    async reinstate({ memberId }) {
+      const member = await get(memberId)
       if (member.status !== MEMBER_STATUS.SUSPENDED) {
         throw new ConflictError('NOT_SUSPENDED', 'この会員は利用停止中ではありません')
       }
@@ -130,12 +130,12 @@ function createScreeningService({ store, clock, memberService, verificationServi
       return store.members.save(member)
     },
 
-    listPending() {
-      return store.members.list().filter((m) => m.status === MEMBER_STATUS.PENDING_SCREENING)
+    async listPending() {
+      return store.members.listByStatus(MEMBER_STATUS.PENDING_SCREENING)
     },
 
-    listPendingDocuments() {
-      return store.documents.list().filter((d) => d.status === DOCUMENT_STATUS.SUBMITTED)
+    async listPendingDocuments() {
+      return store.documents.listByStatus(DOCUMENT_STATUS.SUBMITTED)
     },
   }
 }
