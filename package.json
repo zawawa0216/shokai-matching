@@ -1,5 +1,5 @@
 {
-  "name": "claude-test",
+  "name": "shokai-matching",
   "version": "3.0.0",
   "description": "紹介制マッチングアプリ（紹介文必須・本人確認必須・30歳以上）",
   "main": "index.js",
