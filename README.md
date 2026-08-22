@@ -6,6 +6,11 @@
 
 スワイプで相手を探し、相互にいいねするとマッチしてメッセージができます。
 
+**公開先: https://shokai-matching.vercel.app**
+
+動作確認用に4名の会員を投入してあります（`minato@example.com` など、パスワードは
+`scripts/seed.js` の既定値）。実運用に移すときは、この会員と共有パスワードを消してください。
+
 ## 満たしている要件
 
 | 要件 | 実装 |
@@ -35,7 +40,7 @@ ACTIVE ─ スワイプ / 相互マッチ / メッセージ / 他の人を紹介
 
 ```
 public/               フロントエンド（ビルド不要の素の HTML/CSS/JS）
-api/[...path].js      Vercel のサーバーレス関数エントリ
+api/index.js          Vercel のサーバーレス関数エントリ（/api/* を集約）
 server.js             ローカル用サーバー（/api と public/ を両方さばく）
 index.js              ライブラリとしてのエクスポート
 src/
@@ -58,7 +63,7 @@ Supabase へのアクセスも `fetch` で PostgREST を直接叩いています
 
 ```bash
 npm install
-npm test                                              # 68 tests
+npm test                                              # 73 tests
 OPERATOR_KEY=devkey npm start                         # http://localhost:3000
 npm run seed -- --base http://localhost:3000 --operator-key devkey
 ```
@@ -70,9 +75,15 @@ npm run seed -- --base http://localhost:3000 --operator-key devkey
 
 ## デプロイ（Vercel + Supabase）
 
-Vercel のプロジェクト設定で環境変数を3つ入れてから再デプロイしてください。
-未設定のままだと `/api/*` は 503 を返し、画面には設定手順が表示されます
-（サーバーレスではプロセスが毎回変わるため、永続化なしでは動かないため）。
+`master` への push で自動デプロイされます。Vercel のプロジェクト設定に環境変数を
+3つ入れておく必要があり、未設定のままだと `/api/*` は 503 を返し、画面には
+設定手順が表示されます（サーバーレスではプロセスが毎回変わるため、
+永続化なしでは動かないため）。
+
+`/api/*` は `vercel.json` の rewrite で `api/index.js` にまとめて渡しています。
+ファイル名による動的ルート（`api/[...path].js`）は多階層のパスを関数へ届けられず、
+`/api/admin/documents` などが 404 になったため、この形にしています。
+書き換えで失われる元のパスは `__path` クエリで渡し、ハンドラがそれを見てルーティングします。
 
 | 環境変数 | 内容 |
 | --- | --- |

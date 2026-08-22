@@ -79,7 +79,9 @@ SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... npx jest supabaseStore
   （ドメインオブジェクトも `status` を持つため、プロパティの有無で判定してはいけない）
 - 他会員に返すプロフィールは `matchingService.toPublicProfile` を通す。
   メールアドレスと `credentials` を素で返さない
-- ルートのパスは `/api/` から始める。Vercel の catch-all と `server.js` の振り分けが前提にしている
+- ルートのパスは `/api/` から始める。`vercel.json` の rewrite と `server.js` の振り分けが前提にしている
+- Vercel では `/api/*` を `api/index.js` に集約し、元のパスを `__path` クエリで渡している。
+  ファイル名の動的ルートに戻さない（多階層のパスが関数に届かず 404 になる）
 
 ## フロントエンドの注意
 
