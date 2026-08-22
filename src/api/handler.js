@@ -72,7 +72,14 @@ function createRequestHandler({ app, operatorKey = process.env.OPERATOR_KEY } = 
 
   async function resolve(req) {
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`)
-    const matched = router.match(req.method, url.pathname)
+
+    // Vercel では /api/* をまとめてこの関数へ書き換えているため、
+    // req.url は書き換え後のパスになる。元のパスは __path で渡ってくる。
+    const forwarded = url.searchParams.get('__path')
+    url.searchParams.delete('__path')
+    const pathname = forwarded || url.pathname
+
+    const matched = router.match(req.method, pathname)
     if (!matched) {
       throw new AppError('NOT_FOUND', 'エンドポイントが見つかりません', 404)
     }
