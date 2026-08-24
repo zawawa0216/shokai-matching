@@ -107,16 +107,40 @@
     })
 
     if (response.status === 204) return null
+
+    // サーバーやCDNが JSON 以外を返すことがある（古いデプロイの 404 など）。
+    // ここで落とすと利用者には解読できないエラーが出るので、必ず言葉にして返す。
     const text = await response.text()
-    const payload = text ? JSON.parse(text) : null
+    let payload = null
+    if (text) {
+      try {
+        payload = JSON.parse(text)
+      } catch {
+        payload = null
+      }
+    }
 
     if (!response.ok) {
       if (response.status === 401 && state.token) signOut(true)
-      const error = new Error((payload && payload.error && payload.error.message) || '通信に失敗しました')
+      const error = new Error(messageFor(response.status, payload))
       error.code = payload && payload.error && payload.error.code
+      error.status = response.status
       throw error
     }
+
+    if (text && payload === null) {
+      throw new Error('サーバーの応答を読み取れませんでした。ページを再読み込みしてください。')
+    }
     return payload
+  }
+
+  function messageFor(status, payload) {
+    if (payload && payload.error && payload.error.message) return payload.error.message
+    if (status === 404) {
+      return '古いURLを開いている可能性があります。最新のURLで開き直してください。'
+    }
+    if (status >= 500) return `サーバーが応答しませんでした（${status}）`
+    return `通信に失敗しました（${status}）`
   }
 
   /** 失敗をトーストに落として、画面側は成功時だけ考えればよいようにする。 */
